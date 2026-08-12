@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="在线解析 SQL 并提取引用的物理表名">
+  <title>SQL 底表提取器</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f4f6f8;
+      --surface: #ffffff;
+      --soft: #f7f8fa;
+      --border: #d9dee5;
+      --text: #17202a;
+      --muted: #647181;
+      --primary: #087f5b;
+      --primary-hover: #06694b;
+      --danger: #c92a2a;
+      --focus: rgba(8, 127, 91, .18);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #111418;
+        --surface: #1a1f25;
+        --soft: #20262d;
+        --border: #353d47;
+        --text: #e8ecf1;
+        --muted: #9da8b5;
+        --primary: #38c995;
+        --primary-hover: #59d7a9;
+        --danger: #ff8787;
+        --focus: rgba(56, 201, 149, .2);
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--text);
+      font: 14px/1.5 system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    }
+    main { width: min(960px, calc(100% - 32px)); margin: 0 auto; padding: 32px 0 48px; }
+    header { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+    h1 { margin: 0; font-size: 24px; letter-spacing: 0; }
+    .powered { color: var(--muted); font-size: 12px; }
+    .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 18px; }
+    textarea {
+      display: block;
+      width: 100%;
+      min-height: 300px;
+      resize: vertical;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 14px;
+      background: var(--soft);
+      color: var(--text);
+      font: 13px/1.65 "Cascadia Code", Consolas, monospace;
+      outline: none;
+    }
+    textarea:focus, select:focus { border-color: var(--primary); box-shadow: 0 0 0 3px var(--focus); }
+    .toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-top: 12px; }
+    .field { display: flex; align-items: center; gap: 8px; color: var(--muted); }
+    select, button {
+      min-height: 36px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 12px;
+      background: var(--surface);
+      color: var(--text);
+      font: inherit;
+    }
+    button { cursor: pointer; font-weight: 600; }
+    button:hover { background: var(--soft); }
+    button.primary { border-color: var(--primary); background: var(--primary); color: #fff; }
+    button.primary:hover { background: var(--primary-hover); }
+    button:disabled { cursor: wait; opacity: .65; }
+    .actions { display: flex; gap: 8px; }
+    .error { display: none; margin-top: 12px; color: var(--danger); }
+    .results { display: none; margin-top: 18px; }
+    .result-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+    .result-head h2 { margin: 0; font-size: 16px; letter-spacing: 0; }
+    .count { color: var(--primary); }
+    .table-list { display: grid; gap: 7px; }
+    .table-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 12px; background: var(--soft); border: 1px solid var(--border); border-radius: 6px; }
+    .table-name { overflow-wrap: anywhere; font-family: "Cascadia Code", Consolas, monospace; font-weight: 600; }
+    .tags { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+    .tag { color: var(--muted); font: 11px "Cascadia Code", Consolas, monospace; }
+    .empty { padding: 24px 0; text-align: center; color: var(--muted); }
+    @media (max-width: 560px) {
+      main { width: min(100% - 20px, 960px); padding-top: 20px; }
+      header { align-items: flex-start; flex-direction: column; gap: 4px; }
+      .toolbar { align-items: stretch; flex-direction: column; }
+      .actions button { flex: 1; }
+      .table-row { align-items: flex-start; flex-direction: column; }
+      .tags { justify-content: flex-start; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>SQL 底表提取器</h1>
+      <span class="powered">Powered by sqlglot</span>
+    </header>
+
+    <section class="panel" aria-labelledby="input-title">
+      <textarea id="sql" aria-label="SQL 内容" placeholder="在此粘贴 SQL..." spellcheck="false"></textarea>
+      <div class="toolbar">
+        <label class="field">SQL 方言
+          <select id="dialect">
+            <option value="">自动</option>
+            <option value="mysql">MySQL</option>
+            <option value="postgres">PostgreSQL</option>
+            <option value="hive">Hive</option>
+            <option value="spark">Spark SQL</option>
+            <option value="clickhouse">ClickHouse</option>
+            <option value="snowflake">Snowflake</option>
+            <option value="bigquery">BigQuery</option>
+            <option value="redshift">Redshift</option>
+            <option value="presto">Presto</option>
+            <option value="trino">Trino</option>
+            <option value="oracle">Oracle</option>
+          </select>
+        </label>
+        <div class="actions">
+          <button id="clear" type="button">清空</button>
+          <button id="extract" class="primary" type="button">提取表名</button>
+        </div>
+      </div>
+      <p id="error" class="error" role="alert"></p>
+    </section>
+
+    <section id="results" class="panel results" aria-live="polite">
+      <div class="result-head">
+        <h2>识别到 <span id="count" class="count">0</span> 张物理表</h2>
+        <button id="copy" type="button">复制全部</button>
+      </div>
+      <div id="table-list" class="table-list"></div>
+    </section>
+  </main>
+
+  <script>
+    const sqlInput = document.querySelector('#sql');
+    const dialect = document.querySelector('#dialect');
+    const extractButton = document.querySelector('#extract');
+    const results = document.querySelector('#results');
+    const count = document.querySelector('#count');
+    const tableList = document.querySelector('#table-list');
+    const error = document.querySelector('#error');
+    const copyButton = document.querySelector('#copy');
+    let tables = [];
+
+    function escapeHtml(value) {
+      const element = document.createElement('span');
+      element.textContent = value;
+      return element.innerHTML;
+    }
+
+    function showError(message) {
+      error.textContent = message;
+      error.style.display = 'block';
+    }
+
+    function render(items) {
+      tables = items;
+      count.textContent = String(items.length);
+      tableList.innerHTML = items.length ? items.map((table) => {
+        const tags = [table.database, table.schema]
+          .filter(Boolean)
+          .map((value) => `<span class="tag">${escapeHtml(value)}</span>`)
+          .join('');
+        return `<div class="table-row"><span class="table-name">${escapeHtml(table.full_name)}</span><span class="tags">${tags}</span></div>`;
+      }).join('') : '<div class="empty">未发现物理表</div>';
+      results.style.display = 'block';
+    }
+
+    async function extractTables() {
+      const sql = sqlInput.value.trim();
+      if (!sql) {
+        showError('请先输入 SQL');
+        return;
+      }
+      error.style.display = 'none';
+      extractButton.disabled = true;
+      extractButton.textContent = '解析中...';
+      try {
+        const response = await fetch('/api/extract', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({sql, dialect: dialect.value})
+        });
+        const data = await response.json();
+        if (!response.ok || !data.success) throw new Error(data.error || '解析失败');
+        render(data.tables);
+      } catch (requestError) {
+        showError(requestError.message || '网络请求失败');
+        results.style.display = 'none';
+      } finally {
+        extractButton.disabled = false;
+        extractButton.textContent = '提取表名';
+      }
+    }
+
+    extractButton.addEventListener('click', extractTables);
+    sqlInput.addEventListener('keydown', (event) => {
+      if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+        event.preventDefault();
+        extractTables();
+      }
+    });
+    document.querySelector('#clear').addEventListener('click', () => {
+      sqlInput.value = '';
+      error.style.display = 'none';
+      results.style.display = 'none';
+      tables = [];
+      sqlInput.focus();
+    });
+    copyButton.addEventListener('click', async () => {
+      if (!tables.length) return;
+      await navigator.clipboard.writeText(tables.map((table) => table.full_name).join('\n'));
+      copyButton.textContent = '已复制';
+      setTimeout(() => { copyButton.textContent = '复制全部'; }, 1200);
+    });
+  </script>
+</body>
+</html>
