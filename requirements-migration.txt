@@ -1,0 +1,2 @@
+-r requirements.txt
+minio==7.2.20

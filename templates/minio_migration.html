@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MinIO 模板迁移</title>
+  <style>
+    :root {
+      --ground: #f4f6f8;
+      --surface: #fff;
+      --soft: #fafafa;
+      --ink: #171717;
+      --muted: #555e68;
+      --line: #e5e7eb;
+      --control: #bdc4cd;
+      --accent: #1d5fbf;
+      --error: #a72121;
+      --radius: 8px;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--ground); color: var(--ink); font: 14px/1.5 system-ui, 'Microsoft YaHei', sans-serif; }
+    main { width: min(1100px, calc(100% - 40px)); margin: 0 auto; padding: 36px 0 48px; }
+    h1, h2, p { margin: 0; }
+    h1 { font-size: 26px; line-height: 1.25; font-weight: 650; }
+    h2 { font-size: 15px; font-weight: 650; }
+    .title, .panel-heading, .footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .title { margin-bottom: 20px; }
+    .subtitle, .hint, .empty, .count { color: var(--muted); }
+    .subtitle { margin-top: 6px; }
+    .hint, .count { font-size: 13px; }
+    .workspace { padding: 0; margin: 0; border: 0; min-width: 0; }
+    .sheet, .panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
+    .sheet { padding: 16px; }
+    .route { display: grid; grid-template-columns: 1fr 1fr 1.6fr; gap: 16px; }
+    .field { display: grid; align-content: start; gap: 6px; min-width: 0; }
+    .field label { font-weight: 600; }
+    button, select, input[type=search] {
+      min-height: 38px; border: 1px solid var(--control); border-radius: 6px;
+      padding: 7px 10px; background: var(--surface); color: var(--ink); font: inherit;
+    }
+    button { cursor: pointer; white-space: nowrap; font-weight: 600; }
+    button:hover:not(:disabled) { background: #f0f1f3; }
+    button:disabled, select:disabled { opacity: .55; cursor: default; }
+    select, input[type=search] { width: 100%; min-width: 0; }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .primary { background: var(--ink); border-color: var(--ink); color: var(--surface); padding-inline: 16px; }
+    .primary:hover:not(:disabled) { background: #363636; }
+    .transfer { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 12px; margin-top: 16px; }
+    .panel { min-width: 0; }
+    .panel-heading { padding: 12px 14px; min-height: 48px; }
+    .panel-filter { display: grid; align-items: center; min-height: 52px; padding: 0 14px 10px; border-bottom: 1px solid var(--line); }
+    .arrow-controls { display: grid; align-content: center; gap: 8px; }
+    .list { min-height: 208px; max-height: 326px; overflow: auto; margin: 0; padding: 0 14px; list-style: none; }
+    .list li + li { border-top: 1px solid var(--line); }
+    .row { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 8px; padding: 9px 0; cursor: pointer; }
+    .row input { margin: 3px 0 0; width: 16px; height: 16px; accent-color: var(--accent); }
+    code, .path { font-family: 'Cascadia Code', Consolas, monospace; }
+    .path { font-size: 13px; overflow-wrap: anywhere; }
+    .kind { display: inline-block; margin-right: 6px; font-size: 12px; color: var(--muted); }
+    .empty { padding-block: 20px; }
+    .footer { margin-top: 16px; }
+    .result { margin-top: 16px; }
+    .result ul { padding-left: 20px; margin-bottom: 0; }
+    .result li { overflow-wrap: anywhere; }
+    .error { color: var(--error); }
+    #status { margin-top: 12px; }
+    #status:empty { display: none; }
+    .suffix { color: var(--accent); }
+    @media (max-width: 650px) {
+      main { width: calc(100% - 32px); padding-top: 20px; }
+      h1 { font-size: 22px; }
+      .title, .footer { align-items: flex-start; flex-wrap: wrap; }
+      .route { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+      .destination { grid-column: 1 / -1; }
+      .transfer { grid-template-columns: minmax(0, 1fr); }
+      .arrow-controls { grid-template-columns: 1fr 1fr; }
+      .list { min-height: 92px; max-height: 200px; }
+      button, select, input[type=search], .row { min-height: 44px; }
+      .footer .primary { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header class="title">
+      <div>
+        <h1>MinIO 模板迁移</h1>
+        <p class="subtitle">选择来源目录或模板，复制到目标节点。</p>
+      </div>
+      {% if nodes|length >= 2 %}<button id="refresh" type="button">刷新全部节点目录</button>{% endif %}
+    </header>
+    {% if nodes|length < 2 %}
+    <section class="sheet" aria-labelledby="setup-title">
+      <h2 id="setup-title">等待配置节点</h2>
+      <p class="subtitle">请在后端的 <code>minio_nodes.local.py</code> 中填写至少两个节点，然后重启服务。</p>
+    </section>
+    {% else %}
+    <fieldset class="workspace" id="workspace" aria-label="迁移设置">
+      <div class="sheet route">
+        <div class="field">
+          <label for="source">来源节点</label>
+          <select id="source">{% for node in nodes %}<option>{{ node }}</option>{% endfor %}</select>
+        </div>
+        <div class="field">
+          <label for="target">目标节点</label>
+          <select id="target">{% for node in nodes %}<option{% if loop.index == 2 %} selected{% endif %}>{{ node }}</option>{% endfor %}</select>
+        </div>
+        <div class="field destination">
+          <label for="destination">目标目录</label>
+          <select id="destination" disabled></select>
+        </div>
+      </div>
+      <div class="transfer">
+        <section class="panel" aria-labelledby="available-title">
+          <div class="panel-heading">
+            <h2 id="available-title">来源目录与模板</h2><span id="available-count" class="count"></span>
+          </div>
+          <div class="panel-filter">
+            <input id="filter" type="search" placeholder="搜索名称或路径" aria-label="搜索来源名称或路径">
+          </div>
+          <ul class="list" id="available"></ul>
+        </section>
+        <div class="arrow-controls">
+          <button id="add" type="button" disabled>加入待迁移</button>
+          <button id="remove" type="button" disabled>移回来源</button>
+        </div>
+        <section class="panel" aria-labelledby="selected-title">
+          <div class="panel-heading">
+            <h2 id="selected-title">待迁移</h2><span id="selected-count" class="count"></span>
+          </div>
+          <div class="panel-filter hint">目录内的文件和子目录保留原名</div>
+          <ul class="list" id="selected"></ul>
+        </section>
+      </div>
+      <div class="sheet footer">
+        <p class="hint">命名后缀 <code class="suffix" id="suffix"></code> <span>· 北京时间</span></p>
+        <button id="migrate" class="primary" type="button" disabled>开始迁移</button>
+      </div>
+    </fieldset>
+    <p id="status" role="status"></p>
+    <section id="result" class="sheet result" aria-live="polite" hidden></section>
+    {% endif %}
+  </main>
+  {% if nodes|length >= 2 %}
+  <script>
+    const byId = id => document.getElementById(id);
+    const source = byId('source'), target = byId('target'), destination = byId('destination');
+    const available = byId('available'), selected = byId('selected'), filter = byId('filter');
+    const add = byId('add'), remove = byId('remove'), migrate = byId('migrate');
+    const refresh = byId('refresh'), status = byId('status'), result = byId('result');
+    const catalogs = new Map(), queue = new Set();
+
+    async function api(url, options) {
+      const response = await fetch(url, options);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.conflict ? `${data.error}（${data.conflict}）` : data.error);
+      return data;
+    }
+
+    function updateActions() {
+      add.disabled = !available.querySelector(':checked');
+      remove.disabled = !selected.querySelector(':checked');
+      migrate.disabled = !queue.size || source.value === target.value || !catalogs.get(target.value);
+    }
+
+    function renderList(list, paths, empty) {
+      list.replaceChildren();
+      if (!paths.length) {
+        const item = document.createElement('li');
+        item.className = 'empty';
+        item.textContent = empty;
+        list.append(item);
+        return;
+      }
+      const fragment = document.createDocumentFragment();
+      for (const path of paths) {
+        const item = document.createElement('li');
+        const row = document.createElement('label');
+        const check = document.createElement('input');
+        const text = document.createElement('span');
+        const kind = document.createElement('span');
+        row.className = 'row';
+        check.type = 'checkbox';
+        check.value = path;
+        text.className = 'path';
+        kind.className = 'kind';
+        kind.textContent = path.endsWith('/') ? '目录' : '模板';
+        text.append(kind, path);
+        row.append(check, text);
+        item.append(row);
+        fragment.append(item);
+      }
+      list.append(fragment);
+    }
+
+    function renderTransfer() {
+      const catalog = catalogs.get(source.value);
+      const term = filter.value.trim().toLowerCase();
+      const paths = catalog ? [...catalog.directories, ...catalog.templates] : [];
+      const choices = paths.filter(path => !queue.has(path) && path.toLowerCase().includes(term));
+      renderList(available, choices, catalog ? '没有符合条件的条目。' : '尚未读取来源节点目录。');
+      renderList(selected, [...queue], '在来源列表勾选条目，再点击「加入待迁移」。');
+      byId('available-count').textContent = `${choices.length} 项`;
+      byId('selected-count').textContent = `${queue.size} 项`;
+      byId('suffix').textContent = `_${source.value}_YYYYMMDD`;
+      updateActions();
+    }
+
+    function renderDestination() {
+      const catalog = catalogs.get(target.value);
+      const previous = destination.value;
+      destination.replaceChildren(new Option('节点根目录', ''));
+      for (const path of catalog?.directories ?? []) destination.add(new Option(path, path));
+      destination.value = catalog?.directories.includes(previous) ? previous : '';
+      destination.disabled = !catalog;
+    }
+
+    async function loadCatalog(node, reload) {
+      const url = `/api/catalogs/${encodeURIComponent(node)}`;
+      let catalog = reload ? null : (await api(url)).catalog;
+      if (!catalog) catalog = (await api(url, { method: 'POST' })).catalog;
+      catalogs.set(node, catalog);
+    }
+
+    async function run(message, action) {
+      byId('workspace').disabled = refresh.disabled = true;
+      status.className = '';
+      status.textContent = message;
+      try {
+        status.textContent = await action();
+      } catch (error) {
+        status.className = 'error';
+        status.textContent = error.message;
+      } finally {
+        byId('workspace').disabled = refresh.disabled = false;
+        renderDestination();
+        renderTransfer();
+      }
+    }
+
+    function loadPair(reload = false) {
+      return run('正在读取节点目录…', async () => {
+        const nodes = reload ? Array.from(source.options, option => option.value) : [...new Set([source.value, target.value])];
+        const responses = await Promise.allSettled(nodes.map(node => loadCatalog(node, reload)));
+        const refreshed = catalogs.get(source.value)?.refreshed_at;
+        const valid = catalogs.get(source.value);
+        if (valid) for (const path of queue) {
+          if (!valid.directories.includes(path) && !valid.templates.includes(path)) queue.delete(path);
+        }
+        const failed = nodes.filter((_, index) => responses[index].status === 'rejected');
+        if (failed.length) throw new Error(`目录读取失败（${failed.join('、')}），请检查后端连接。`);
+        if (source.value === target.value) return '请选择两个不同的节点。';
+        return refreshed ? `来源目录快照更新于 ${refreshed.slice(0, 19).replace('T', ' ')}（北京时间）` : '';
+      });
+    }
+
+    function showResults(data) {
+      const heading = document.createElement('h2');
+      const failures = data.results.filter(item => item.error).length;
+      heading.textContent = `已复制 ${data.copied} 个对象${failures ? `，${failures} 项未完成` : ''}`;
+      const list = document.createElement('ul');
+      for (const item of data.results) {
+        const row = document.createElement('li');
+        const failure = item.error ? ` · ${item.error}${item.failed_path ? `（${item.failed_path}）` : ''}` : '';
+        row.textContent = `${item.source} → ${item.destination} · ${item.copied} 个对象${failure}`;
+        row.className = item.error ? 'error' : '';
+        if (!item.error) queue.delete(item.source);
+        list.append(row);
+      }
+      result.replaceChildren(heading, list);
+      result.hidden = false;
+    }
+
+    source.addEventListener('change', () => { queue.clear(); filter.value = ''; loadPair(); });
+    target.addEventListener('change', () => { destination.value = ''; loadPair(); });
+    filter.addEventListener('input', renderTransfer);
+    available.addEventListener('change', updateActions);
+    selected.addEventListener('change', updateActions);
+    add.addEventListener('click', () => {
+      available.querySelectorAll(':checked').forEach(check => queue.add(check.value));
+      renderTransfer();
+    });
+    remove.addEventListener('click', () => {
+      selected.querySelectorAll(':checked').forEach(check => queue.delete(check.value));
+      renderTransfer();
+    });
+    refresh.addEventListener('click', () => loadPair(true));
+    migrate.addEventListener('click', () => run('正在复制对象，请保持页面打开…', async () => {
+      result.hidden = true;
+      const data = await api('/api/migrations', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ source: source.value, target: target.value, destination: destination.value, paths: [...queue] }),
+      });
+      showResults(data);
+      if (data.copied) await loadCatalog(target.value, true);
+      return '';
+    }));
+    renderTransfer();
+    loadPair();
+  </script>
+  {% endif %}
+</body>
+</html>

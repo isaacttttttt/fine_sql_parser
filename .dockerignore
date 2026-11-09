@@ -5,3 +5,5 @@ __pycache__
 *.py[cod]
 .venv
 tests
+minio_nodes.local.py
+instance/minio-catalog

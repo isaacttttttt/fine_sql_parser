@@ -1,2 +1,2 @@
--r requirements.txt
+-r requirements-migration.txt
 pytest==9.1.1
