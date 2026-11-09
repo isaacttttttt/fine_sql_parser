@@ -7,6 +7,7 @@ import os
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from hmac import compare_digest
 from pathlib import Path
 from posixpath import splitext
 from tempfile import NamedTemporaryFile
@@ -41,12 +42,22 @@ class Node:
 
 
 app = Flask(__name__)
-app.config.from_pyfile("minio_nodes.local.py", silent=True)
+hosted = bool(os.environ.get("RAILWAY_ENVIRONMENT_ID"))
+trusted_hosts = ["localhost", "127.0.0.1"]
+if hosted:
+    app.config["MINIO_NODES"] = json.loads(os.environ.get("MINIO_NODES_JSON", "{}"))
+    trusted_hosts.append("healthcheck.railway.app")
+    if domain := os.environ.get("RAILWAY_PUBLIC_DOMAIN"):
+        trusted_hosts.append(domain)
+else:
+    app.config.from_pyfile("minio_nodes.local.py", silent=True)
 app.config.update(
     MINIO_NODES={key: Node(**value) for key, value in app.config.get("MINIO_NODES", {}).items()},
     MINIO_CATALOG_DIR=Path(app.instance_path) / "minio-catalog",
+    MINIO_MIGRATION_HOSTED=hosted,
+    MINIO_MIGRATION_TOKEN=os.environ.get("MINIO_MIGRATION_TOKEN"),
     MAX_CONTENT_LENGTH=1_000_000,
-    TRUSTED_HOSTS=["localhost", "127.0.0.1"],
+    TRUSTED_HOSTS=trusted_hosts,
 )
 if any(not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", key) for key in app.config["MINIO_NODES"]):
     raise ValueError("节点 ID 只允许字母、数字、连字符和下划线，并以字母或数字开头")
@@ -60,9 +71,36 @@ def read_catalog(node_id: str):
         return None
 
 
+@app.before_request
+def authorize_hosted_requests():
+    if not app.config["MINIO_MIGRATION_HOSTED"] or request.endpoint == "health":
+        return
+
+    token = app.config["MINIO_MIGRATION_TOKEN"]
+    if not token:
+        if request.endpoint == "index":
+            return render_template("minio_migration.html", nodes=[], hosted=True)
+        return jsonify(error="请先配置迁移访问令牌"), 503
+
+    auth = request.authorization
+    if (auth is None or auth.type != "basic" or auth.username != "operator" or auth.password is None
+            or not compare_digest(auth.password.encode(), token.encode())):
+        return "请登录迁移工具", 401, {"WWW-Authenticate": 'Basic realm="MinIO migration", charset="UTF-8"'}
+
+    origin = request.headers.get("Origin")
+    if request.method == "POST" and origin and origin != f"https://{request.host}":
+        return jsonify(error="请从迁移工具页面发起操作"), 403
+
+
+@app.get("/health")
+def health():
+    return jsonify(status="ok")
+
+
 @app.get("/")
 def index():
-    return render_template("minio_migration.html", nodes=list(app.config["MINIO_NODES"]))
+    return render_template("minio_migration.html", nodes=list(app.config["MINIO_NODES"]),
+                           hosted=app.config["MINIO_MIGRATION_HOSTED"])
 
 
 @app.route("/api/catalogs/<node_id>", methods=["GET", "POST"])

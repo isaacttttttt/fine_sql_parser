@@ -48,3 +48,14 @@ python sql_table_server.py
 | `销售/日报.cpt` | `日报_uat_20261109.cpt` |
 
 日期按北京时间取 `YYYYMMDD`。可单独选中 `.cpt`、`.frm` 和 `.fvs` 模板。复制时保留来源对象。目标同名时整批在写入前停止。若复制途中有对象失败，页面会显示该条目已复制的数量和失败路径，已写入的对象会留在目标节点。
+
+### 在 Railway 配置迁移服务
+
+迁移服务使用 `Dockerfile.migration` 构建，健康检查路径为 `/health`。在该服务的 Variables 中添加下面两个变量，再应用变更。
+
+| 变量 | 值 |
+| --- | --- |
+| `MINIO_MIGRATION_TOKEN` | 随机生成的长令牌。浏览器登录的用户名为 `operator`，密码填该令牌。 |
+| `MINIO_NODES_JSON` | 至少两个节点的 JSON 对象。节点 ID 和字段沿用 `minio_nodes.example.py`，用 JSON 的双引号和 `true` / `false`。建议封存该变量。 |
+
+Railway 运行环境需要能访问各节点的 MinIO API。重新部署后，目录快照会在首次读取时重新生成。

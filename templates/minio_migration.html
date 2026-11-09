@@ -92,7 +92,11 @@
     {% if nodes|length < 2 %}
     <section class="sheet" aria-labelledby="setup-title">
       <h2 id="setup-title">等待配置节点</h2>
+      {% if hosted %}
+      <p class="subtitle">请在 Railway 服务的 Variables 中设置 <code>MINIO_MIGRATION_TOKEN</code> 和 <code>MINIO_NODES_JSON</code>。</p>
+      {% else %}
       <p class="subtitle">请在后端的 <code>minio_nodes.local.py</code> 中填写至少两个节点，然后重启服务。</p>
+      {% endif %}
     </section>
     {% else %}
     <fieldset class="workspace" id="workspace" aria-label="迁移设置">
